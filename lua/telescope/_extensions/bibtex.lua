@@ -149,13 +149,13 @@ local function formatDisplay(line)
   local notes_path = string.format("/home/basti/src/org/bib/%s.org", key)
   local has_pdf = vim.fn.filereadable(pdf_path) > 0
   local has_notes = vim.fn.filereadable(notes_path) > 0
-  local pdf_string = has_pdf and "P" or " "
-  local notes_string = has_notes and "N" or " "
+  local pdf_string = has_pdf and "" or " "
+  local notes_string = has_notes and "" or " "
 
   local year_string = entry.year or "xxxx"
   local author_string = entry.author or "xxxx"
   local title_string = entry.title or "xxxx"
-  local display_string = string.format("|%s|%s|%4s|%15s|%s", pdf_string, notes_string, year_string, author_string:sub(1, 15), title_string)
+  local display_string = string.format("│%s│%s│%4s│%15s│%s", pdf_string, notes_string, year_string, author_string:sub(1, 15), title_string)
 
   local search_string = ''
   for _, val in pairs(search_keys) do
