@@ -17,6 +17,7 @@ local scan = require('plenary.scandir')
 local path = require('plenary.path')
 local putils = require('telescope.previewers.utils')
 local loop = vim.loop
+local job = require('plenary.job')
 
 local depth = 1
 local wrap = false
@@ -140,19 +141,32 @@ local function read_file(file)
   return labels, contents, search_relevants
 end
 
-local function formatDisplay(entry)
-  local display_string = ''
+local function formatDisplay(line)
+  P(line)
+  local key = line.name
+  local entry = line.search_keys
+  local pdf_path = string.format("/home/basti/sync/papers/%s.pdf", key)
+  local notes_path = string.format("/home/basti/src/org/bib/%s.org", key)
+  local has_pdf = vim.fn.filereadable(pdf_path) > 0
+  local has_notes = vim.fn.filereadable(notes_path) > 0
+  local pdf_string = has_pdf and "P" or " "
+  local notes_string = has_notes and "N" or " "
+
+  local year_string = entry.year or "xxxx"
+  local author_string = entry.author or "xxxx"
+  local title_string = entry.title or "xxxx"
+  local display_string = string.format("|%s|%s|%4s|%15s|%s", pdf_string, notes_string, year_string, author_string:sub(1, 15), title_string)
+
   local search_string = ''
   for _, val in pairs(search_keys) do
     if tonumber(entry[val]) ~= nil then
-      display_string = display_string .. ' ' .. '(' .. entry[val] .. ')'
       search_string = search_string .. ' ' .. entry[val]
     elseif entry[val] ~= nil then
-      display_string = display_string .. ', ' .. entry[val]
       search_string = search_string .. ' ' .. entry[val]
     end
   end
-  return vim.trim(display_string:sub(2)), search_string:sub(2)
+
+  return display_string, search_string:sub(2)
 end
 
 local function setup_picker(context, context_fallback)
@@ -240,7 +254,7 @@ local function bibtex_picker(opts)
     finder = finders.new_table({
       results = results,
       entry_maker = function(line)
-        local display_string, search_string = formatDisplay(line.search_keys)
+        local display_string, search_string = formatDisplay(line)
         if display_string == '' then
           display_string = line.name
         end
@@ -277,6 +291,9 @@ local function bibtex_picker(opts)
       actions.select_default:replace(key_append(format_string))
       map('i', '<c-e>', entry_append)
       map('i', '<c-c>', citation_append)
+      map('i', '<c-p>', citation_open_pdf)
+      map('i', '<c-d>', citation_debug)
+      map('i', '<c-n>', citation_open_notes)
       return true
     end,
   }):find()
@@ -324,6 +341,35 @@ local function format_citation(entry, template)
   end
 
   return utils.format_template(parsed, template)
+end
+
+citation_open_pdf = function(prompt_bufnr)
+  local entry = action_state.get_selected_entry().id.content
+  local key = entry[1]:match("@.*{(.*),")
+  local file = string.format("/home/basti/sync/papers/%s.pdf", key)
+  actions.close(prompt_bufnr)
+  job:new({
+    command = "zathura",
+    args = { file },
+    detached = true,
+  }):start()
+end
+
+citation_open_notes = function(prompt_bufnr)
+  local entry = action_state.get_selected_entry().id.content
+  local key = entry[1]:match("@.*{(.*),")
+  local file = string.format("/home/basti/src/org/bib/%s.org", key)
+  actions.close(prompt_bufnr)
+  vim.cmd.e(file)
+end
+
+local citation_debug = function(prompt_bufnr)
+  local entry = action_state.get_selected_entry().id.content
+  print(vim.inspect(entry))
+  print(vim.inspect(entry[1]))
+  local key = entry[1]:match("@.*{(.*),")
+  print(key)
+  actions.close(prompt_bufnr)
 end
 
 citation_append = function(prompt_bufnr)
