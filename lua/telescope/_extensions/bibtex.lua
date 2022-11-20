@@ -152,10 +152,10 @@ local function formatDisplay(line)
   local pdf_string = has_pdf and "" or " "
   local notes_string = has_notes and "" or " "
 
-  local year_string = entry.year or "xxxx"
-  local author_string = entry.author or "xxxx"
-  local title_string = entry.title or "xxxx"
-  local display_string = string.format("│%s│%s│%4s│%15s│%s", pdf_string, notes_string, year_string, author_string:sub(1, 15), title_string)
+  local year_string = entry.year or ""
+  local author_string = entry.author or ""
+  local title_string = entry.title or ""
+  local display_string = string.format("│%s│%s│%-4s│%-15s│%s", pdf_string, notes_string, year_string, author_string:sub(1, 15), title_string)
 
   local search_string = ''
   for _, val in pairs(search_keys) do
