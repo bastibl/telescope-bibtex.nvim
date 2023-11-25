@@ -25,7 +25,9 @@ local formats = {}
 formats['tex'] = '\\cite{%s}'
 formats['md'] = '@%s'
 formats['markdown'] = '@%s'
+formats['typst'] = '@%s'
 formats['rmd'] = '@%s'
+formats['quarto'] = '@%s'
 formats['pandoc'] = '@%s'
 formats['plain'] = '%s'
 local fallback_format = 'plain'
@@ -120,18 +122,25 @@ local function read_file(file)
       local content = vim.split(entry, '\n')
       table.insert(labels, label)
       contents[label] = content
+      search_relevants[label] = {}
       if table_contains(search_keys, [[label]]) then
         search_relevants[label]['label'] = label
       end
-      search_relevants[label] = {}
       for _, key in pairs(search_keys) do
         local key_pattern = utils.construct_case_insensitive_pattern(key)
         local match_base = '%f[%w]' .. key_pattern
-        local s = entry:match(match_base .. '%s*=%s*%b{}')
-          or entry:match(match_base .. '%s*=%s*%b""')
-          or entry:match(match_base .. '%s*=%s*%d+')
+        local s = nil
+        local bracket_match = entry:match(match_base .. '%s*=%s*%b{}')
+        local quote_match = entry:match(match_base .. '%s*=%s*%b""')
+        local number_match = entry:match(match_base .. '%s*=%s*%d+')
+        if bracket_match ~= nil then
+          s = bracket_match:match('%b{}')
+        elseif quote_match ~= nil then
+          s = quote_match:match('%b""')
+        elseif number_match ~= nil then
+          s =  number_match:match('%d+')
+        end
         if s ~= nil then
-          s = s:match('%b{}') or s:match('%b""') or s:match('%d+')
           s = s:gsub('["{}\n]', ''):gsub('%s%s+', ' ')
           search_relevants[label][key] = vim.trim(s)
         end
@@ -211,7 +220,9 @@ end
 
 local function parse_format_string(opts)
   local format_string = nil
-  if opts.format ~= nil then
+  if opts.format_string ~= nil then
+    format_string = opts.format_string
+  elseif opts.format ~= nil then
     format_string = formats[opts.format]
   elseif use_auto_format then
     format_string = formats[vim.bo.filetype]
@@ -302,10 +313,8 @@ end
 key_append = function(format_string)
   return function(prompt_bufnr)
     local mode = vim.api.nvim_get_mode().mode
-    local entry = string.format(
-      format_string,
-      action_state.get_selected_entry().id.name
-    )
+    local entry =
+      string.format(format_string, action_state.get_selected_entry().id.name)
     actions.close(prompt_bufnr)
     if mode == 'i' then
       vim.api.nvim_put({ entry }, '', false, true)
@@ -327,6 +336,59 @@ entry_append = function(prompt_bufnr)
     vim.api.nvim_put(entry, '', true, true)
   end
 end
+
+local function get_bibkeys(parsed_entry)
+  local bibkeys={}
+  for key,_ in pairs(parsed_entry) do
+    table.insert(bibkeys, key)
+  end
+  return bibkeys
+end
+
+field_append = function(prompt_bufnr)
+  local bib_entry = action_state.get_selected_entry().id.content
+  actions.close(prompt_bufnr)
+
+  local parsed = utils.parse_entry(bib_entry)
+  pickers.new(opts, {
+    prompt_title = "Bibtex fields",
+    sorter = conf.generic_sorter(opts),
+    finder = finders.new_table {
+      results = get_bibkeys(parsed),
+    },
+    previewer = previewers.new_buffer_previewer({
+        define_preview = function(self, entry, status)
+          vim.api.nvim_buf_set_lines(
+            self.state.bufnr,
+            0,
+            -1,
+            true,
+            {parsed[entry[1]]}
+          )
+          vim.api.nvim_win_set_option(
+            status.preview_win,
+            'wrap',
+            true
+          )
+        end,
+      }),
+    attach_mappings = function(prompt_bufnr)
+      actions.select_default:replace(function()
+        actions.close(prompt_bufnr)
+        local selection = action_state.get_selected_entry()
+        local mode = vim.api.nvim_get_mode().mode
+        if mode == 'i' then
+          vim.api.nvim_put({parsed[selection[1]]}, '', false, true)
+          vim.api.nvim_feedkeys('a', 'n', true)
+        else
+          vim.api.nvim_put({parsed[selection[1]]}, '', true, true)
+        end
+      end)
+      return true
+    end,
+  }):find()
+end
+
 
 -- Parse bibtex entry and format the citation
 local function format_citation(entry, template)
@@ -397,10 +459,8 @@ return telescope.register_extension({
       user_format = fallback_format
       use_auto_format = true
     end
-    user_context = ext_config.context or false
-    if ext_config.context_fallback ~= nil then
-      user_context_fallback = ext_config.context_fallback
-    end
+    user_context = ext_config.context or user_context
+    user_context_fallback = ext_config.context_fallback or user_context_fallback
     if ext_config.global_files ~= nil then
       for _, file in pairs(ext_config.global_files) do
         table.insert(user_files, vim.fn.expand(file))
@@ -409,8 +469,9 @@ return telescope.register_extension({
     search_keys = ext_config.search_keys or search_keys
     citation_format = ext_config.citation_format
       or '{{author}} ({{year}}), {{title}}.'
-    citation_trim_firstname = ext_config.citation_trim_firstname or true
-    citation_max_auth = ext_config.citation_max_auth or 2
+    citation_trim_firstname = ext_config.citation_trim_firstname
+      or citation_trim_firstname
+    citation_max_auth = ext_config.citation_max_auth or citation_max_auth
     wrap = ext_config.wrap or wrap
   end,
   exports = {
