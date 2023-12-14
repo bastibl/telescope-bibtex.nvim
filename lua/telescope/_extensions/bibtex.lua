@@ -151,7 +151,6 @@ local function read_file(file)
 end
 
 local function formatDisplay(line)
-  P(line)
   local key = line.name
   local entry = line.search_keys
   local pdf_path = string.format("/home/basti/sync/papers/%s.pdf", key)
