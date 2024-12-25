@@ -157,7 +157,8 @@ local function formatDisplay(line)
   local notes_path = string.format("/home/basti/src/org/bib/%s.org", key)
   local has_pdf = vim.fn.filereadable(pdf_path) > 0
   local has_notes = vim.fn.filereadable(notes_path) > 0
-  local pdf_string = has_pdf and "" or " "
+  local pdf_string = has_pdf and "" or " "
+
   local notes_string = has_notes and "" or " "
 
   local year_string = entry.year or ""
