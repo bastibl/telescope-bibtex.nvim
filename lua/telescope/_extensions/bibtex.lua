@@ -1,5 +1,8 @@
 local has_telescope, telescope = pcall(require, 'telescope')
-local utils = require('telescope._extensions.bibtex.utils')
+--local utils = require('telescope._extensions.bibtex.utils')
+local bibtex_actions = require('telescope-bibtex.actions')
+local action_state = require('telescope.actions.state')
+local utils = require('telescope-bibtex.utils')
 
 if not has_telescope then
   error(
@@ -10,7 +13,6 @@ end
 local finders = require('telescope.finders')
 local pickers = require('telescope.pickers')
 local actions = require('telescope.actions')
-local action_state = require('telescope.actions.state')
 local previewers = require('telescope.previewers')
 local conf = require('telescope.config').values
 local scan = require('plenary.scandir')
@@ -43,6 +45,13 @@ local citation_trim_firstname = true
 local citation_max_auth = 2
 local user_context = false
 local user_context_fallback = true
+local keymaps = {
+  i = {
+    ["<C-e>"] = bibtex_actions.entry_append,
+    ["<C-c>"] = bibtex_actions.citation_append(citation_format),
+    ["<C-f>"] = bibtex_actions.field_append(citation_format),
+  }
+}
 
 local function table_contains(table, element)
   for _, value in pairs(table) do
@@ -105,17 +114,12 @@ local function read_file(file)
   end
   local data = p:read()
   data = data:gsub('\r', '')
-  local entries = {}
-  local raw_entry = ''
+  local entry = ''
   while true do
-    raw_entry = data:match('@%w*%s*%b{}')
-    if raw_entry == nil then
+    entry = data:match('@%w*%s*%b{}')
+    if entry == nil then
       break
     end
-    table.insert(entries, raw_entry)
-    data = data:sub(#raw_entry + 2)
-  end
-  for _, entry in pairs(entries) do
     local label = entry:match('{%s*[^{},~#%\\]+,\n')
     if label then
       label = vim.trim(label:gsub('\n', ''):sub(2, -2))
@@ -142,15 +146,17 @@ local function read_file(file)
         end
         if s ~= nil then
           s = s:gsub('["{}\n]', ''):gsub('%s%s+', ' ')
-          search_relevants[label][key] = vim.trim(s)
+          search_relevants[label][string.lower(key)] = vim.trim(s)
         end
       end
     end
+    data = data:sub(#entry + 2)
   end
   return labels, contents, search_relevants
 end
 
 local function formatDisplay(line)
+  vim.print(line)
   local key = line.name
   local entry = line.search_keys
   local pdf_path = string.format("/home/basti/sync/papers/%s.pdf", key)
@@ -260,53 +266,59 @@ local function bibtex_picker(opts)
   local context = parse_context(opts)
   local context_fallback = parse_context_fallback(opts)
   local results = setup_picker(context, context_fallback)
-  pickers.new(opts, {
-    prompt_title = 'Bibtex References',
-    finder = finders.new_table({
-      results = results,
-      entry_maker = function(line)
-        local display_string, search_string = formatDisplay(line)
-        if display_string == '' then
-          display_string = line.name
+  pickers
+    .new(opts, {
+      prompt_title = 'Bibtex References',
+      finder = finders.new_table({
+        results = results,
+        entry_maker = function(line)
+          local display_string, search_string = formatDisplay(line)
+          if display_string == '' then
+            display_string = line.name
+          end
+          if search_string == '' then
+            search_string = line.name
+          end
+          return {
+            value = search_string,
+            ordinal = search_string,
+            display = display_string,
+            id = line,
+          }
+        end,
+      }),
+      previewer = previewers.new_buffer_previewer({
+        define_preview = function(self, entry, status)
+          vim.api.nvim_buf_set_lines(
+            self.state.bufnr,
+            0,
+            -1,
+            true,
+            results[entry.index].content
+          )
+          putils.highlighter(self.state.bufnr, 'bib')
+          vim.api.nvim_win_set_option(
+            status.preview_win,
+            'wrap',
+            utils.parse_wrap(opts, wrap)
+          )
+        end,
+      }),
+      sorter = conf.generic_sorter(opts),
+      attach_mappings = function(_, map)
+        actions.select_default:replace(bibtex_actions.key_append(format_string))
+        for mode, mappings in pairs(keymaps) do
+          for key, action in pairs(mappings) do
+            map(mode, key, action)
+          end
         end
-        if search_string == '' then
-          search_string = line.name
-        end
-        return {
-          value = search_string,
-          ordinal = search_string,
-          display = display_string,
-          id = line,
-        }
-      end,
-    }),
-    previewer = previewers.new_buffer_previewer({
-      define_preview = function(self, entry, status)
-        vim.api.nvim_buf_set_lines(
-          self.state.bufnr,
-          0,
-          -1,
-          true,
-          results[entry.index].content
-        )
-        putils.highlighter(self.state.bufnr, 'bib')
-        vim.api.nvim_win_set_option(
-          status.preview_win,
-          'wrap',
-          utils.parse_wrap(opts, wrap)
-        )
-      end,
-    }),
-    sorter = conf.generic_sorter(opts),
-    attach_mappings = function(_, map)
-      actions.select_default:replace(key_append(format_string))
       map('i', '<c-e>', entry_append)
       map('i', '<c-c>', citation_append)
       map('i', '<c-p>', citation_open_pdf)
       map('i', '<c-d>', citation_debug)
       map('i', '<c-n>', citation_open_notes)
-      return true
-    end,
+        return true
+      end,
   }):find()
 end
 
@@ -425,7 +437,7 @@ citation_open_notes = function(prompt_bufnr)
   vim.cmd.e(file)
 end
 
-local citation_debug = function(prompt_bufnr)
+citation_debug = function(prompt_bufnr)
   local entry = action_state.get_selected_entry().id.content
   print(vim.inspect(entry))
   print(vim.inspect(entry[1]))
@@ -473,6 +485,7 @@ return telescope.register_extension({
       or citation_trim_firstname
     citation_max_auth = ext_config.citation_max_auth or citation_max_auth
     wrap = ext_config.wrap or wrap
+    keymaps = vim.tbl_extend("force", keymaps, ext_config.mappings or {})
   end,
   exports = {
     bibtex = bibtex_picker,
