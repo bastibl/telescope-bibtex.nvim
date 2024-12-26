@@ -156,7 +156,6 @@ local function read_file(file)
 end
 
 local function formatDisplay(line)
-  vim.print(line)
   local key = line.name
   local entry = line.search_keys
   local pdf_path = string.format("/home/basti/sync/papers/%s.pdf", key)
@@ -164,7 +163,6 @@ local function formatDisplay(line)
   local has_pdf = vim.fn.filereadable(pdf_path) > 0
   local has_notes = vim.fn.filereadable(notes_path) > 0
   local pdf_string = has_pdf and "" or " "
-
   local notes_string = has_notes and "" or " "
 
   local year_string = entry.year or ""
